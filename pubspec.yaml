@@ -1,0 +1,62 @@
+name: trolley_control
+description: "Control your smart trolley wirelessly"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^3.8.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_database: ^11.1.4
+  shared_preferences: ^2.3.2
+  mobile_scanner: ^7.0.1
+  google_fonts: ^6.2.1
+  qr_flutter: ^4.1.0
+  http: ^1.2.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0 
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+
+
+ 
+# ============================================================
+# APP ICON CONFIGURATION
+# ============================================================
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#F7C948"
+  adaptive_icon_foreground: "assets/icon.png"
+  min_sdk_android: 21   
+
+
+# ============================================================
+# SPLASH SCREEN CONFIGURATION
+# ============================================================
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/logo_splash.png
+  color_dark: "#000000"
+  image_dark: assets/logo_splash.png
+  android: true
+  ios: false
+  web: false
+  android_12:
+    color: "#FFFFFF"
+    image: assets/logo_splash.png
+    icon_background_color: "#F7C948"
