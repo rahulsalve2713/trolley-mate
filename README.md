@@ -24,5 +24,4 @@ To run this locally:
 3. Generate `firebase_options.dart` using the FlutterFire CLI.
 4. Run `flutter pub get` and `flutter run`.
 
-## 📱 Screenshots
-*(Add a screenshot of your app here later!)*
+
