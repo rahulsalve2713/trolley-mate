@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart'; // ✅ Added for debugPrint
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,13 +8,9 @@ class CartService {
   CartService._();
   static final CartService instance = CartService._();
 
-  // ============================================================
-  // FIREBASE REALTIME DATABASE URL
-  // ============================================================
   static const String _dbUrl =
       'https://trolley-mate-3c373-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  // Explicitly use the URL so Flutter Web doesn't fail
   final FirebaseDatabase _db = FirebaseDatabase.instanceFor(
     app: Firebase.app(),
     databaseURL: _dbUrl,
@@ -42,13 +39,10 @@ class CartService {
   String get trolleyCode => _trolleyCode ?? '0000';
   String get username => _username ?? 'guest';
   int get totalItems =>
-      _items.values.fold(0, (s, e) => s + (e['qty'] as int));
+      _items.values.fold(0, (total, e) => total + (e['qty'] as int)); // ✅ Fixed parameter name
   double get totalPrice => _items.values.fold(
-      0.0, (s, e) => s + (e['price'] as int) * (e['qty'] as int));
+      0.0, (total, e) => total + (e['price'] as int) * (e['qty'] as int));
 
-  // ============================================================
-  // INIT
-  // ============================================================
   Future<void> init() async {
     if (_initialized) return;
     final prefs = await SharedPreferences.getInstance();
@@ -57,9 +51,6 @@ class CartService {
     _initialized = true;
   }
 
-  // ============================================================
-  // REFRESH IDENTITY
-  // ============================================================
   Future<void> refreshIdentity() async {
     final prefs = await SharedPreferences.getInstance();
     _username = prefs.getString('username') ?? 'guest';
@@ -67,9 +58,6 @@ class CartService {
     _initialized = true;
   }
 
-  // ============================================================
-  // SET TROLLEY CODE
-  // ============================================================
   Future<void> setTrolleyCode(String code) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('trolleyCode', code);
@@ -78,9 +66,6 @@ class CartService {
     await _syncToFirebase();
   }
 
-  // ============================================================
-  // CLEAR TROLLEY CODE
-  // ============================================================
   Future<void> clearTrolleyCode() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('trolleyCode');
@@ -89,13 +74,10 @@ class CartService {
     _emit();
   }
 
-  // ============================================================
-  // ITEM OPERATIONS
-  // ============================================================
   Future<void> addItem(String name, int price, String emoji) async {
     await init();
     if (_trolleyCode == null || _trolleyCode!.isEmpty) {
-      print('⚠️ Cannot add item — trolley code not set');
+      debugPrint('⚠️ Cannot add item — trolley code not set'); // ✅ Changed
       return;
     }
     if (_items.containsKey(name)) {
@@ -128,12 +110,9 @@ class CartService {
     _controller.add(Map.from(_items));
   }
 
-  // ============================================================
-  // FIREBASE SYNC
-  // ============================================================
   Future<void> _syncToFirebase() async {
     if (_trolleyCode == null || _trolleyCode!.isEmpty) {
-      print('⚠️ Cannot sync — trolley code not set');
+      debugPrint('⚠️ Cannot sync — trolley code not set'); // ✅ Changed
       return;
     }
     try {
@@ -149,22 +128,19 @@ class CartService {
           'updatedAt': ServerValue.timestamp,
         });
       }
-      print('✅ Cart synced → liveCarts/$_trolleyCode');
+      debugPrint('✅ Cart synced → liveCarts/$_trolleyCode'); // ✅ Changed
     } catch (e) {
-      print('❌ Cart sync error: $e');
+      debugPrint('❌ Cart sync error: $e'); // ✅ Changed
     }
   }
 
-  // ============================================================
-  // MARK PAID
-  // ============================================================
   Future<void> markPaid() async {
     await init();
     if (_trolleyCode == null || _trolleyCode!.isEmpty) return;
     try {
       await _db.ref('liveCarts/$_trolleyCode').update({'status': 'paid'});
     } catch (e) {
-      print('❌ markPaid error: $e');
+      debugPrint('❌ markPaid error: $e'); // ✅ Changed
     }
   }
 }

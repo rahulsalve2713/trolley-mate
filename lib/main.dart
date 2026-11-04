@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -5,14 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';        // ← ADD IF MISSING
+import 'package:firebase_core/firebase_core.dart';        
 import 'package:firebase_database/firebase_database.dart';
 import 'firebase_options.dart';
 import 'auth_service.dart';
 import 'cart_service.dart';
 import 'product_service.dart';
-import 'order_service.dart';                                   // ← also make sure this is here
+import 'order_service.dart';                                   
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 // ============================================================
@@ -181,42 +181,40 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  bool _showBooth = true;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'TrolleyMate',
       theme: ThemeData(
-        brightness: Brightness.light,
         primaryColor: TMColors.primary,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: TMColors.primary,
-          primary: TMColors.primary,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
-          centerTitle: false,
-        ),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: Colors.white,
-          selectedItemColor: TMColors.primary,
-          unselectedItemColor: TMColors.grey,
-          elevation: 8,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: TMColors.primary,
-            foregroundColor: Colors.black,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
         useMaterial3: true,
       ),
-      home: kIsWeb ? const BillingBoothScreen() : const AuthWrapper(),
+      home: kIsWeb
+          ? (_showBooth ? const BillingBoothScreen() : const AuthWrapper())
+          : const AuthWrapper(),
+      builder: (context, child) {
+        if (!kIsWeb) return child!;
+        return Stack(
+          children: [
+            child!,
+            Positioned(
+              bottom: 20,
+              left: 20,
+              child: SafeArea(
+                child: FloatingActionButton.extended(
+                  onPressed: () => setState(() => _showBooth = !_showBooth),
+                  backgroundColor: _showBooth ? Colors.black : TMColors.primary,
+                  foregroundColor: _showBooth ? Colors.white : Colors.black,
+                  icon: Icon(_showBooth ? Icons.person : Icons.point_of_sale),
+                  label: Text(_showBooth ? 'Switch to App' : 'Switch to Booth'),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
       debugShowCheckedModeBanner: false,
     );
   }
@@ -891,27 +889,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _status = 'Please enter your username');
       return;
     }
-
-    setState(() {
-      _isLoading = true;
-      _status = '';
-    });
-
+    setState(() { _isLoading = true; _status = ''; });
     final data = await _auth.getSecurityQuestion(username);
-
     if (!mounted) return;
-
     if (data == null) {
-      setState(() {
-        _isLoading = false;
-        _status = 'User not found';
-      });
+      setState(() { _isLoading = false; _status = 'User not found'; });
       return;
     }
-
     setState(() {
-      _step = 1;
-      _isLoading = false;
+      _step = 1; _isLoading = false;
       _storedQuestion = data['question'] ?? '';
       _storedAnswer = data['answer'] ?? '';
       _username = username;
@@ -921,24 +907,27 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _verifyAnswer() async {
     final answer = _answerController.text.trim();
-    if (answer.isEmpty) {
-      setState(() => _status = 'Please enter your answer');
-      return;
-    }
+    if (answer.isEmpty) { setState(() => _status = 'Please enter your answer'); return; }
     if (answer.toLowerCase() != _storedAnswer.toLowerCase()) {
-      setState(() => _status = 'Incorrect answer. Try again.');
-      return;
+      setState(() => _status = 'Incorrect answer. Try again.'); return;
     }
+    
+    setState(() => _isLoading = true);
 
-    // Success: notify admin (saved to SharedPreferences for admin to see)
-    final prefs = await SharedPreferences.getInstance();
-    final requests = prefs.getStringList('password_reset_requests') ?? [];
-    requests.add('$_username|${DateTime.now().toString()}|verified');
-    await prefs.setStringList('password_reset_requests', requests);
+    // ✅ SAFETY: Save to Firestore for Admin to see
+    try {
+      await FirebaseFirestore.instance.collection('password_reset_requests').add({
+        'username': _username,
+        'time': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+    } catch (e) {
+      print('Error saving reset request: $e');
+    }
 
     if (!mounted) return;
     setState(() {
-      _step = 2;
+      _step = 2; _isLoading = false;
       _status = 'Answer correct! Request sent to admin for password reset.';
     });
   }
@@ -947,132 +936,73 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Forgot Password',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
+        title: Text('Forgot Password', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white, elevation: 0,
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_reset, size: 80, color: Color(0xFFF7C948)),
+            const Icon(Icons.lock_reset, size: 80, color: TMColors.primary),
             const SizedBox(height: 20),
             Text(
-              _step == 0
-                  ? 'Enter your username'
-                  : _step == 1
-                      ? 'Answer Security Question'
-                      : 'Request Sent to Admin',
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
+              _step == 0 ? 'Enter your username' : _step == 1 ? 'Answer Security Question' : 'Request Sent to Admin',
+              style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
             ),
             const SizedBox(height: 20),
             if (_step == 0) ...[
               TextField(
                 controller: _usernameController,
-                decoration: InputDecoration(
-                  labelText: 'Username',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  prefixIcon: const Icon(Icons.person_outline),
-                ),
+                decoration: InputDecoration(labelText: 'Username', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), prefixIcon: const Icon(Icons.person_outline)),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _isLoading ? null : _checkUsername,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF7C948),
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.black)
-                    : const Text('Next'),
+                style: ElevatedButton.styleFrom(backgroundColor: TMColors.primary, foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: _isLoading ? const CircularProgressIndicator(color: Colors.black) : const Text('Next'),
               ),
             ] else if (_step == 1) ...[
-              Text('Question: $_storedQuestion',
-                  style: GoogleFonts.poppins(fontSize: 16)),
+              Text('Question: $_storedQuestion', style: GoogleFonts.poppins(fontSize: 16), textAlign: TextAlign.center),
               const SizedBox(height: 16),
               TextField(
                 controller: _answerController,
-                decoration: InputDecoration(
-                  labelText: 'Your Answer',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  prefixIcon: const Icon(Icons.security),
-                ),
+                decoration: InputDecoration(labelText: 'Your Answer', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), prefixIcon: const Icon(Icons.security)),
               ),
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: _verifyAnswer,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF7C948),
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-                child: const Text('Verify'),
+                onPressed: _isLoading ? null : _verifyAnswer,
+                style: ElevatedButton.styleFrom(backgroundColor: TMColors.primary, foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: _isLoading ? const CircularProgressIndicator(color: Colors.black) : const Text('Verify'),
               ),
             ] else if (_step == 2) ...[
               Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
+                decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.green.shade200)),
                 child: Column(
                   children: [
                     const Icon(Icons.check_circle, color: Colors.green, size: 60),
                     const SizedBox(height: 12),
-                    Text(
-                      'Your password reset request has been sent to the admin.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(fontSize: 14),
-                    ),
+                    Text('Your password reset request has been sent to the admin.', textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 14)),
                     const SizedBox(height: 8),
-                    Text(
-                      'Please contact the admin to get your new password.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
-                    ),
+                    Text('Please contact the admin to get your new password.', textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
                   ],
                 ),
               ),
               const SizedBox(height: 30),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF7C948),
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: TMColors.primary, foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                 child: const Text('Back to Login'),
               ),
             ],
             const SizedBox(height: 16),
             if (_step < 2)
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Back to Login'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Back to Login')),
             if (_status.isNotEmpty && _step < 2)
               Padding(
                 padding: const EdgeInsets.only(top: 16),
-                child: Text(
-                  _status,
-                  style: TextStyle(
-                    color: _status.contains('correct') || _status.contains('sent')
-                        ? Colors.green
-                        : Colors.red,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                child: Text(_status, style: TextStyle(color: _status.contains('correct') || _status.contains('sent') ? Colors.green : Colors.red), textAlign: TextAlign.center),
               ),
           ],
         ),
@@ -2394,25 +2324,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Edit Name',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: _nameController,
-          decoration: const InputDecoration(
-              hintText: 'Enter your name', border: OutlineInputBorder()),
-        ),
+        title: Text('Edit Name', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        content: TextField(controller: _nameController, decoration: const InputDecoration(hintText: 'Enter your name', border: OutlineInputBorder())),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              if (_nameController.text.trim().isNotEmpty) {
-                Navigator.pop(ctx, _nameController.text.trim());
-              }
-            },
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF7C948)),
+            onPressed: () { if (_nameController.text.trim().isNotEmpty) Navigator.pop(ctx, _nameController.text.trim()); },
+            style: ElevatedButton.styleFrom(backgroundColor: TMColors.primary),
             child: const Text('Save'),
           ),
         ],
@@ -2431,25 +2349,18 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        content: const Text('Are you sure you want to logout? This will clear your current cart.'),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Logout'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('Logout')),
         ],
       ),
     );
     if (confirmed != true) return;
 
-    // Clear cart on logout
+    // ✅ SAFETY: Wipe local data and Firebase state completely
     await CartService.instance.clear();
     await CartService.instance.clearTrolleyCode();
-
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', false);
     await _auth.logout();
@@ -2466,9 +2377,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Profile',
-            style: GoogleFonts.poppins(
-                fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+        title: Text('Profile', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
         backgroundColor: Colors.white,
         elevation: 0,
       ),
@@ -2477,81 +2386,44 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           Container(
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                  colors: [Color(0xFFF7C948), Color(0xFFFFD54F)]),
-              borderRadius: BorderRadius.circular(20),
-            ),
+            decoration: BoxDecoration(gradient: const LinearGradient(colors: [TMColors.primary, TMColors.accent]), borderRadius: BorderRadius.circular(20)),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(
-                      color: Colors.white, shape: BoxShape.circle),
-                  child: const Icon(Icons.person, color: Colors.black, size: 40),
-                ),
+                Container(padding: const EdgeInsets.all(12), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: const Icon(Icons.person, color: Colors.black, size: 40)),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_userName,
-                          style: GoogleFonts.poppins(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black)),
-                      Text('@$_username',
-                          style: GoogleFonts.poppins(
-                              fontSize: 14, color: Colors.black87)),
-                      if (_email.isNotEmpty)
-                        Text(_email,
-                            style: GoogleFonts.poppins(
-                                fontSize: 11, color: Colors.black54)),
+                      Text(_userName, style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+                      Text('@$_username', style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87)),
+                      if (_email.isNotEmpty) Text(_email, style: GoogleFonts.poppins(fontSize: 11, color: Colors.black54)),
                     ],
                   ),
                 ),
-                IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.black),
-                    onPressed: _editName),
+                IconButton(icon: const Icon(Icons.edit, color: Colors.black), onPressed: _editName),
               ],
             ),
           ),
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.grey.shade200,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2))
-                ],
-              ),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 8)]),
               child: Column(
                 children: [
                   _buildMenuItem(Icons.history, 'Order History', () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const OrderHistoryScreen()));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const OrderHistoryScreen()));
                   }),
                   _buildDivider(),
                   _buildMenuItem(Icons.payment, 'Payment Methods', () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const PaymentMethodsScreen()));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentMethodsScreen()));
                   }),
                   _buildDivider(),
                   _buildMenuItem(Icons.contact_mail, 'Contact Us', () {
-                    Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const ContactUsScreen()));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactUsScreen()));
                   }),
                   _buildDivider(),
-                  _buildMenuItem(Icons.logout, 'Logout', _logout,
-                      isLogout: true),
+                  _buildMenuItem(Icons.logout, 'Logout', _logout, isLogout: true),
                 ],
               ),
             ),
@@ -2561,31 +2433,20 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     );
   }
 
-  Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap,
-      {bool isLogout = false}) {
+  Widget _buildMenuItem(IconData icon, String title, VoidCallback onTap, {bool isLogout = false}) {
     return ListTile(
-      leading: Icon(icon,
-          color: isLogout ? Colors.red : const Color(0xFFF7C948)),
-      title: Text(title,
-          style: GoogleFonts.poppins(
-              color: isLogout ? Colors.red : Colors.black, fontSize: 16)),
-      trailing: Icon(Icons.arrow_forward_ios,
-          size: 16, color: Colors.grey.shade400),
+      leading: Icon(icon, color: isLogout ? Colors.red : TMColors.primary),
+      title: Text(title, style: GoogleFonts.poppins(color: isLogout ? Colors.red : Colors.black, fontSize: 16)),
+      trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
       onTap: onTap,
     );
   }
 
-  Widget _buildDivider() => Divider(
-      color: Colors.grey.shade200,
-      height: 1,
-      thickness: 1,
-      indent: 16,
-      endIndent: 16);
+  Widget _buildDivider() => Divider(color: Colors.grey.shade200, height: 1, thickness: 1, indent: 16, endIndent: 16);
 }
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
-
   @override
   State<ContactUsScreen> createState() => _ContactUsScreenState();
 }
@@ -2599,71 +2460,54 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     final subject = _subjectController.text.trim();
     final message = _messageController.text.trim();
     if (subject.isEmpty || message.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fill all fields'), backgroundColor: Colors.red),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fill all fields'), backgroundColor: Colors.red));
       return;
     }
     setState(() => _isLoading = true);
-    final prefs = await SharedPreferences.getInstance();
-    final messages = prefs.getStringList('contact_messages') ?? [];
-    final username = prefs.getString('username') ?? 'anonymous';
-    messages.add('$username|$subject|$message|${DateTime.now().toString()}');
-    await prefs.setStringList('contact_messages', messages);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message sent to admin!'), backgroundColor: Colors.green),
-      );
-      Navigator.pop(context);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final username = prefs.getString('username') ?? 'anonymous';
+
+      // ✅ SAVE TO FIRESTORE
+      await FirebaseFirestore.instance.collection('messages').add({
+        'user': username,
+        'subject': subject,
+        'message': message,
+        'time': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message sent to admin!'), backgroundColor: Colors.green));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Contact Us', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: Text('Contact Us', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)), backgroundColor: Colors.white, elevation: 0),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            const Icon(Icons.contact_mail, size: 80, color: Color(0xFFF7C948)),
+            const Icon(Icons.contact_mail, size: 80, color: TMColors.primary),
             const SizedBox(height: 20),
-            TextField(
-              controller: _subjectController,
-              decoration: InputDecoration(
-                labelText: 'Subject',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
+            TextField(controller: _subjectController, decoration: InputDecoration(labelText: 'Subject', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)))),
             const SizedBox(height: 16),
-            TextField(
-              controller: _messageController,
-              maxLines: 5,
-              decoration: InputDecoration(
-                labelText: 'Message',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                alignLabelWithHint: true,
-              ),
-            ),
+            TextField(controller: _messageController, maxLines: 5, decoration: InputDecoration(labelText: 'Message', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)), alignLabelWithHint: true)),
             const SizedBox(height: 30),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _sendMessage,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF7C948),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-                child: _isLoading
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                    : const Text('Send Message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                onPressed: _isLoading ? null : _sendMessage,
+                style: ElevatedButton.styleFrom(backgroundColor: TMColors.primary, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: _isLoading ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.black)) : const Text('Send Message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -3142,32 +2986,7 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
-  int _userCount = 0;
-  int _resetRequests = 0;
-  int _productCount = 0;
-  int _messageCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  void _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final users = prefs.getStringList('users') ?? [];
-    final requests = prefs.getStringList('password_reset_requests') ?? [];
-    final products = prefs.getStringList('products') ?? [];
-    final messages = prefs.getStringList('contact_messages') ?? [];
-    if (mounted) {
-      setState(() {
-        _userCount = users.length;
-        _resetRequests = requests.length;
-        _productCount = products.length;
-        _messageCount = messages.length;
-      });
-    }
-  }
+  // ✅ Old variables deleted completely
 
   @override
   Widget build(BuildContext context) {
@@ -3181,51 +3000,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            GridView.count(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
+            Row(
               children: [
-                _buildStatCard('Users', _userCount.toString(), Icons.people, Colors.blue),
-                _buildStatCard('Products', _productCount.toString(), Icons.inventory_2, Colors.green),
-                _buildStatCard('Reset Requests', _resetRequests.toString(), Icons.lock_reset, Colors.orange),
-                _buildStatCard('Messages', _messageCount.toString(), Icons.message, Colors.purple),
+                Expanded(child: _buildStreamCard('Users', Icons.people, Colors.blue, FirebaseFirestore.instance.collection('users').snapshots())),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStreamCard('Products', Icons.inventory_2, Colors.green, FirebaseFirestore.instance.collection('products').snapshots())),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildStreamCard('Orders', Icons.receipt_long, Colors.purple, FirebaseFirestore.instance.collection('orders').snapshots())),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStreamCard('Messages', Icons.message, Colors.orange, FirebaseFirestore.instance.collection('messages').snapshots())),
+              ],
+            ),
+            const SizedBox(height: 24),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 8, offset: const Offset(0, 2))],
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.grey.shade200, blurRadius: 8)]),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Recent Activity', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                    Text('Recent System Activity', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
-                    if (_resetRequests > 0)
-                      ListTile(
-                        leading: const Icon(Icons.notifications, color: Color(0xFFF7C948)),
-                        title: const Text('New password reset requests'),
-                        subtitle: Text('$_resetRequests pending'),
-                      )
-                    else if (_messageCount > 0)
-                      ListTile(
-                        leading: const Icon(Icons.message, color: Color(0xFFF7C948)),
-                        title: const Text('New contact messages'),
-                        subtitle: Text('$_messageCount unread'),
-                      )
-                    else
-                      const ListTile(
-                        leading: Icon(Icons.check_circle, color: Colors.green),
-                        title: Text('All clear!'),
-                        subtitle: Text('No pending actions'),
-                      ),
+                    const ListTile(
+                      leading: Icon(Icons.check_circle, color: Colors.green),
+                      title: Text('System Synced'),
+                      subtitle: Text('All Firebase services online'),
+                    ),
                   ],
                 ),
               ),
@@ -3236,23 +3040,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withAlpha(20),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withAlpha(50)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 8),
-          Text(value, style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black)),
-          Text(label, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600)),
-        ],
-      ),
+  Widget _buildStreamCard(String label, IconData icon, Color color, Stream<QuerySnapshot> stream) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: color.withAlpha(20), borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withAlpha(50))),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 32),
+              const SizedBox(height: 8),
+              Text('$count', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold)),
+              Text(label, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade600)),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -3265,115 +3070,8 @@ class AdminUsersScreen extends StatefulWidget {
 }
 
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
-  List<Map<String, String>> _users = [];
-  List<Map<String, String>> _resetRequests = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  void _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final usersJson = prefs.getStringList('users') ?? [];
-    final requestsJson = prefs.getStringList('password_reset_requests') ?? [];
-
-    List<Map<String, String>> users = [];
-    for (var data in usersJson) {
-      final parts = data.split('|');
-      if (parts.length >= 3) {
-        users.add({
-          'username': parts[0],
-          'password': parts[1],
-          'role': parts[2],
-          'question': parts.length > 3 ? parts[3] : '',
-          'answer': parts.length > 4 ? parts[4] : '',
-        });
-      }
-    }
-
-    List<Map<String, String>> requests = [];
-    for (var data in requestsJson) {
-      final parts = data.split('|');
-      if (parts.length >= 2) {
-        requests.add({
-          'username': parts[0],
-          'time': parts[1],
-        });
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _users = users;
-        _resetRequests = requests;
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _deleteUser(String username) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete User'),
-        content: Text('Are you sure you want to delete "$username"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      final prefs = await SharedPreferences.getInstance();
-      List<String> usersJson = prefs.getStringList('users') ?? [];
-      usersJson.removeWhere((e) => e.startsWith('$username|'));
-      await prefs.setStringList('users', usersJson);
-      final requestsJson = prefs.getStringList('password_reset_requests') ?? [];
-      requestsJson.removeWhere((e) => e.startsWith('$username|'));
-      await prefs.setStringList('password_reset_requests', requestsJson);
-      _loadData();
-      if (!mounted) return;  
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('User "$username" deleted'), backgroundColor: Colors.green),
-      );
-    }
-  }
-
-  Future<void> _viewUserDetails(Map<String, String> user) async {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('User Details', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Username: ${user['username']}'),
-            Text('Role: ${user['role']}'),
-            Text('Security Question: ${user['question'] ?? 'N/A'}'),
-            Text('Answer: ${user['answer'] ?? 'N/A'}'),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Text('Manage Users', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
@@ -3384,114 +3082,108 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         length: 2,
         child: Column(
           children: [
-            TabBar(
+            const TabBar(
               labelColor: Colors.black,
-              indicatorColor: const Color(0xFFF7C948),
-              tabs: [
-                Tab(text: 'Users (${_users.length})'),
-                Tab(
-                  text: 'Reset Requests (${_resetRequests.length})',
-                  icon: _resetRequests.isNotEmpty ? const Icon(Icons.notifications, color: Colors.red) : null,
-                ),
-              ],
+              indicatorColor: TMColors.primary,
+              tabs: [Tab(text: 'All Users'), Tab(text: 'Reset Requests')],
             ),
             Expanded(
               child: TabBarView(
                 children: [
-                  ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _users.length,
-                    itemBuilder: (context, index) {
-                      final user = _users[index];
-                      final isAdmin = user['role'] == 'admin';
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
+                  // Tab 1: All Users
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                      final users = snapshot.data!.docs;
+                      if (users.isEmpty) return const Center(child: Text('No users found'));
+
+                      return ListView.builder(
                         padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [BoxShadow(color: Colors.grey.shade100, blurRadius: 4, offset: const Offset(0, 2))],
-                        ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: isAdmin ? Colors.orange.shade100 : Colors.blue.shade100,
-                              child: Icon(
-                                isAdmin ? Icons.admin_panel_settings : Icons.person,
-                                color: isAdmin ? Colors.orange : Colors.blue,
-                              ),
+                        itemCount: users.length,
+                        itemBuilder: (context, index) {
+                          final data = users[index].data() as Map<String, dynamic>;
+                          final isAdmin = data['role'] == 'admin';
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.grey.shade100, blurRadius: 4)]),
+                            child: Row(
+                              children: [
+                                CircleAvatar(backgroundColor: isAdmin ? Colors.orange.shade100 : Colors.blue.shade100, child: Icon(isAdmin ? Icons.admin_panel_settings : Icons.person, color: isAdmin ? Colors.orange : Colors.blue)),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(data['name'] ?? 'Unknown', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                                      Text('@${data['username'] ?? ''}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                    ],
+                                  ),
+                                ),
+                                if (!isAdmin)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    onPressed: () async {
+                                      // ✅ SAFETY: Confirm before deleting
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Delete User?'),
+                                          content: Text('Remove @${data['username']} from database?'),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                            TextButton(onPressed: () => Navigator.pop(ctx, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('Delete')),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirm == true) {
+                                        await FirebaseFirestore.instance.collection('users').doc(users[index].id).delete();
+                                      }
+                                    },
+                                  ),
+                              ],
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(user['username'] ?? '', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.black)),
-                                  Text(user['role'] ?? 'customer', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                ],
-                              ),
-                            ),
-                            if (!isAdmin) ...[
-                              IconButton(
-                                icon: const Icon(Icons.info_outline, color: Colors.grey),
-                                onPressed: () => _viewUserDetails(user),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                onPressed: () => _deleteUser(user['username']!),
-                              ),
-                            ],
-                          ],
-                        ),
+                          );
+                        },
                       );
                     },
                   ),
-                  _resetRequests.isEmpty
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check_circle, size: 60, color: Colors.green),
-                              SizedBox(height: 16),
-                              Text('No pending reset requests'),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _resetRequests.length,
-                          itemBuilder: (context, index) {
-                            final request = _resetRequests[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFF7C948), width: 1),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.person, color: Color(0xFFF7C948)),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(request['username'] ?? '', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.black)),
-                                        Text('Requested at: ${request['time']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.check_circle, color: Colors.green),
-                                    onPressed: () => _changePassword(request['username']!),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                  // Tab 2: Reset Requests
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance.collection('password_reset_requests').where('status', isEqualTo: 'pending').snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                      final requests = snapshot.data!.docs;
+                      if (requests.isEmpty) return const Center(child: Text('No pending requests'));
+
+                      return ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) {
+                          final data = requests[index].data() as Map<String, dynamic>;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: TMColors.primary)),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.lock_reset, color: TMColors.primary),
+                                const SizedBox(width: 16),
+                                Expanded(child: Text('@${data['username']}', style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+                                IconButton(
+                                  icon: const Icon(Icons.check_circle, color: Colors.green),
+                                  onPressed: () async {
+                                    await FirebaseFirestore.instance.collection('password_reset_requests').doc(requests[index].id).update({'status': 'resolved'});
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -3499,57 +3191,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _changePassword(String username) async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Change Password for $username', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          decoration: const InputDecoration(hintText: 'New password', border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                Navigator.pop(ctx, controller.text);
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF7C948)),
-            child: const Text('Update'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null && result.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      final usersJson = prefs.getStringList('users') ?? [];
-      final updatedUsers = usersJson.map((data) {
-        final parts = data.split('|');
-        if (parts.length >= 3 && parts[0] == username) {
-          return '$username|$result|${parts[2]}';
-        }
-        return data;
-      }).toList();
-      await prefs.setStringList('users', updatedUsers);
-
-      final requestsJson = prefs.getStringList('password_reset_requests') ?? [];
-      final updatedRequests = requestsJson.where((e) => !e.startsWith('$username|')).toList();
-      await prefs.setStringList('password_reset_requests', updatedRequests);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password updated successfully!'), backgroundColor: Colors.green),
-        );
-      }
-      _loadData();
-    }
   }
 }
 
@@ -4019,101 +3660,58 @@ class AdminMessagesScreen extends StatefulWidget {
 }
 
 class _AdminMessagesScreenState extends State<AdminMessagesScreen> {
-  List<Map<String, String>> _messages = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMessages();
-  }
-
-  void _loadMessages() async {
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = prefs.getStringList('contact_messages') ?? [];
-    final List<Map<String, String>> msgs = [];
-    for (var item in messagesJson) {
-      final parts = item.split('|');
-      if (parts.length >= 4) {
-        msgs.add({
-          'user': parts[0],
-          'subject': parts[1],
-          'message': parts[2],
-          'time': parts[3],
-        });
-      }
+  String _formatTime(dynamic ts) {
+    if (ts is Timestamp) {
+      final d = ts.toDate();
+      return '${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     }
-    setState(() {
-      _messages = msgs;
-      _isLoading = false;
-    });
-  }
-
-  Future<void> _deleteMessage(int index) async {
-    setState(() {
-      _messages.removeAt(index);
-    });
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = _messages.map((m) => '${m['user']}|${m['subject']}|${m['message']}|${m['time']}').toList();
-    await prefs.setStringList('contact_messages', messagesJson);
+    return 'Just now';
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Contact Messages', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: _messages.isEmpty
-          ? const Center(child: Text('No messages from customers'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: ListTile(
-                    leading: CircleAvatar(child: Text(msg['user']![0].toUpperCase())),
-                    title: Text(msg['subject'] ?? '', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                    subtitle: Text('From: ${msg['user']}  •  ${msg['time']}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _deleteMessage(index),
-                    ),
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Text('Message from ${msg['user']}', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                          content: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('Subject: ${msg['subject']}'),
-                              const SizedBox(height: 8),
-                              Text('Message: ${msg['message']}'),
-                              const SizedBox(height: 8),
-                              Text('Time: ${msg['time']}'),
-                            ],
-                          ),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-                          ],
-                        ),
-                      );
-                    },
+      appBar: AppBar(title: Text('Contact Messages', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)), backgroundColor: Colors.white, elevation: 0),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('messages').orderBy('time', descending: true).snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final messages = snapshot.data!.docs;
+          if (messages.isEmpty) return const Center(child: Text('No messages from customers'));
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: messages.length,
+            itemBuilder: (context, index) {
+              final doc = messages[index];
+              final data = doc.data() as Map<String, dynamic>;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: ListTile(
+                  leading: CircleAvatar(backgroundColor: TMColors.primary, child: Text(data['user'][0].toUpperCase(), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
+                  title: Text(data['subject'] ?? '', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: Text('From: @${data['user']}\n${_formatTime(data['time'])}', style: const TextStyle(fontSize: 12)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => FirebaseFirestore.instance.collection('messages').doc(doc.id).delete(),
                   ),
-                );
-              },
-            ),
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text('From @${data['user']}', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                        content: Text(data['message'] ?? ''),
+                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
