@@ -13,7 +13,6 @@ import 'auth_service.dart';
 import 'cart_service.dart';
 import 'product_service.dart';
 import 'order_service.dart';                                   
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 // ============================================================
 // TROLLEYMATE BRAND CONSTANTS
@@ -155,33 +154,24 @@ class TrolleyMateLogoHorizontal extends StatelessWidget {
 }
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  print('🟢 STEP 1: Framework ready');
-
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     ).timeout(const Duration(seconds: 8));
-    print('🟢 STEP 2: Firebase initialized OK');
   } catch (e) {
-    print('🔴 STEP 2 FAILED: $e');
+    debugPrint('🔴 Firebase init failed: $e');
   }
-
-  print('🟢 STEP 3: Calling runApp now');
-  runApp(const MyApp());
-  print('🟢 STEP 4: runApp finished');
+  runApp(const MyApp()); // Default is false (Customer/Admin App)
 }
 // ============================================================
 // MY APP
 // ============================================================
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool _showBooth = true;
+// ============================================================
+// MY APP (Clean Entry Point)
+// ============================================================
+class MyApp extends StatelessWidget {
+  final bool startAsBooth;
+  const MyApp({super.key, this.startAsBooth = false});
 
   @override
   Widget build(BuildContext context) {
@@ -191,30 +181,8 @@ class _MyAppState extends State<MyApp> {
         primaryColor: TMColors.primary,
         useMaterial3: true,
       ),
-      home: kIsWeb
-          ? (_showBooth ? const BillingBoothScreen() : const AuthWrapper())
-          : const AuthWrapper(),
-      builder: (context, child) {
-        if (!kIsWeb) return child!;
-        return Stack(
-          children: [
-            child!,
-            Positioned(
-              bottom: 20,
-              left: 20,
-              child: SafeArea(
-                child: FloatingActionButton.extended(
-                  onPressed: () => setState(() => _showBooth = !_showBooth),
-                  backgroundColor: _showBooth ? Colors.black : TMColors.primary,
-                  foregroundColor: _showBooth ? Colors.white : Colors.black,
-                  icon: Icon(_showBooth ? Icons.person : Icons.point_of_sale),
-                  label: Text(_showBooth ? 'Switch to App' : 'Switch to Booth'),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+      // If startAsBooth is true, show Booth. Otherwise, show App.
+      home: startAsBooth ? const BillingBoothScreen() : const AuthWrapper(),
       debugShowCheckedModeBanner: false,
     );
   }
@@ -922,7 +890,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         'status': 'pending',
       });
     } catch (e) {
-      print('Error saving reset request: $e');
+      debugPrint('Error saving reset request: $e');
     }
 
     if (!mounted) return;

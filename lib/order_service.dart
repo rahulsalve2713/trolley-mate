@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart'; // ✅ Added for debugPrint
 
 class OrderService {
   OrderService._();
@@ -9,17 +10,16 @@ class OrderService {
 
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
-  // Save a completed order
   Future<void> saveOrder({
     required String username,
     required String trolleyCode,
     required List<Map<String, dynamic>> items,
     required double total,
-    required String status, // 'completed' | 'pending'
+    required String status,
   }) async {
     final uid = _uid;
     if (uid == null) {
-      print('⚠️ Cannot save order — no user logged in');
+      debugPrint('⚠️ Cannot save order — no user logged in'); // ✅ Changed
       return;
     }
 
@@ -30,17 +30,16 @@ class OrderService {
         'trolleyCode': trolleyCode,
         'items': items,
         'total': total,
-        'itemCount': items.fold<int>(0, (s, e) => s + (e['qty'] as int)),
+        'itemCount': items.fold<int>(0, (total, e) => total + (e['qty'] as int)),
         'status': status,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      print('✅ Order saved for user $uid');
+      debugPrint('✅ Order saved for user $uid'); // ✅ Changed
     } catch (e) {
-      print('❌ Save order error: $e');
+      debugPrint('❌ Save order error: $e'); // ✅ Changed
     }
   }
 
-  // Stream orders for the current user (newest first)
   Stream<List<Map<String, dynamic>>> myOrdersStream() {
     final uid = _uid;
     if (uid == null) return Stream.value([]);
@@ -65,7 +64,6 @@ class OrderService {
         };
       }).toList();
 
-      // Sort descending by createdAt (null-safe)
       list.sort((a, b) {
         final ta = (a['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
         final tb = (b['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
